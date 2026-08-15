@@ -37,13 +37,18 @@
     maxBytes: 65536
 
 # V4 Pro conditions strongly on the API tool catalog. Bootstrap its first model
-# request with one native shell plus `read`; after the first durable tool call,
-# later step assemblies expose every Standard tool registered below.
+# request with one native shell plus `read`; after the session records its first
+# durable promotion signal (a tool call OR the first assistant message, default
+# `promoteOn: either`), later step assemblies expose every Standard tool
+# registered below. Request #1 always sees the bootstrap catalog; request #2
+# always sees the full catalog — a text-only first reply can no longer trap the
+# session in bootstrap. See tool-bootstrap.mjs for the other triggers.
 - id: tool-bootstrap
   name: ./tool-bootstrap.mjs
   config:
     shellTools: [bash, pwsh]
     commonTools: [read]
+    promoteOn: either
 
 # ── shell ───────────────────────────────────────────────────────────────────
 

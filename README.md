@@ -20,7 +20,12 @@ Anchored Standard separates initial trajectory selection from later tool use:
 
 1. Keep the Minimal complete system prompt.
 2. Expose only the platform shell plus `read` on the first model request.
-3. After the session records its first `tool/call`, expose all Standard tools.
+3. After the session records its first durable promotion signal — a `tool/call`
+   or the first `assistant/message`, whichever comes first — expose all
+   Standard tools. Request #1 always sees the bootstrap catalog; request #2
+   always sees the full catalog, so a text-only first reply can no longer trap
+   the session in bootstrap. (`promoteOn` in the `tool-bootstrap` row selects
+   the trigger: `either` default, `tool-call`, or `assistant-message`.)
 4. Derive the phase from durable session events so resume and reload preserve it.
 
 On Windows the bootstrap catalog is `pwsh/read`; on Linux it is `bash/read`.
@@ -85,8 +90,8 @@ different preset.
 Export the session JSONL and inspect `request/header` events:
 
 - the first header should contain only `pwsh/read` or `bash/read`;
-- after the first tool call, the next changed header should contain the full
-  Standard catalog;
+- after the first tool call or the first assistant reply, the next changed
+  header should contain the full Standard catalog;
 - subsequent requests should keep that full catalog.
 
 Run the local zero-dependency tests with:
@@ -97,9 +102,19 @@ npm test
 
 ## Important behavior
 
-- If the first model response makes no tool call, promotion does not occur.
+- With the default `promoteOn: either`, the session promotes after its first
+  durable `tool/call` OR its first `assistant/message`, whichever comes first —
+  request #1 sees the bootstrap catalog and every later request sees the full
+  catalog. A text-only first reply therefore still promotes at request #2;
+  set `promoteOn: tool-call` to restore the original behavior, where a first
+  response that makes no tool call never promotes.
 - A failed tool execution still promotes the session because the durable
   `tool/call` already exists.
+- A missing bootstrap tool degrades to the full catalog with a one-time
+  warning instead of failing requests, so a composition drift cannot brick a
+  session; invalid `promoteOn` values fail at preset mount instead.
+- Promotion decisions are memoized per session for the process lifetime; the
+  durable event scan runs once per session per process.
 - The tool catalog changes once, so request-prefix cache continuity also changes
   once between the first and second model requests.
 - The preset has the same trust level as shell access. Review its files before
