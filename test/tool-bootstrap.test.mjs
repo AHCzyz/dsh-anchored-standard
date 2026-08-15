@@ -348,3 +348,10 @@ test('invalid compactionTools values fail at apply time', () => {
   assert.throws(() => register({ ...config, compactionTools: [] }), /compactionTools/)
   assert.throws(() => register({ ...config, compactionTools: ['read', 42] }), /compactionTools/)
 })
+
+test('unknown config keys reject at apply time', () => {
+  assert.throws(() => register({ ...config, promoteOnn: 'either' }), /unknown config key/)
+  assert.throws(() => register({ bootstrapTools: ['bash'], commonTools: ['read'] }), /unknown config key/)
+  assert.throws(() => register(null), /config must be an object/)
+  assert.throws(() => register([]), /config must be an object/)
+})
