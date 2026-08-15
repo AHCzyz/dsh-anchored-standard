@@ -181,6 +181,38 @@ cp -R zero-anchored-standard "$dsh_home/.agent-presets/zero-anchored-standard"
 重启 DeepSeek Harness，新建空白会话，选择 **Zero-Anchored Standard
 (experimental)**，然后发送第一条消息。
 
+## Whoami Standard（实验）
+
+"零工具锚定"思路的易用性变体：首轮不是固定测试语，而是一句自然的自我介绍
+提示（"你是谁"），用户的第一条真实消息自动推迟到下一轮。无论你第一条发什么，
+会话都会先热身一轮，等你真实的消息进来时一切就绪：
+
+1. 用户发出第一条消息时，`whoami-turn` 插件把固定消息——"你是谁"——prepend 到
+   `next-turn` 收件队列、排在真实消息前面；
+2. dsh 每轮只消费一条 `next-turn` 消息，因此第一个模型请求只看到锚定消息、
+   携带 **0 个工具**，模型回复自我介绍，该回复即晋升信号；
+3. 下一轮才轮到真实消息，此时晋升后的 resident 目录（shell、str_replace_editor、
+   发现类工具）已解锁，重型 Standard 工具一次 `dev_tool_search` 即可取用。
+
+锚定文本可通过 `whoami-turn` 行的 `text` 配置（默认"你是谁"）。锚定发生在第一条
+消息到达时而非会话创建时，新建会话仍可先切换模式；子 agent 始终看到完整目录。
+代价是每个会话固定多一次模型调用——即使第一条消息很紧急也会先跑自我介绍轮。
+
+该预设通过 `../preset/` 引用与 anchored 的 `preset/` 目录共享插件模块，安装时
+请一并安装该目录（见上文"安装"章节）。
+
+以独立 preset id 安装：
+
+```sh
+dsh_home="${DSH_HOME:-$HOME/.dsh}"
+mkdir -p "$dsh_home/.agent-presets"
+test ! -e "$dsh_home/.agent-presets/whoami-standard"
+cp -R whoami-standard "$dsh_home/.agent-presets/whoami-standard"
+```
+
+重启 DeepSeek Harness，新建空白会话，选择 **Whoami Standard (experimental)**，
+然后发送第一条消息——自我介绍轮先跑，你的消息在下一轮带着完整工具被回答。
+
 ## 官方生态要求
 
 DeepSeek 当前建议社区作者把插件放在自己的 GitHub 项目中，并为仓库添加
