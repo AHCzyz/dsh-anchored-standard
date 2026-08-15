@@ -188,6 +188,11 @@ export function apply(ctx, config) {
   })
 
   // Cap the first model request's output budget while bootstrapping.
+  // prepend:true keeps this listener the OUTERMOST transform of the
+  // agent/request waterfall for the same registration-order reasons as the
+  // pre-step strip below (loader row application is concurrent; row order
+  // alone does not decide listener order — see issue #6), so a later
+  // listener can never override the first-round budget after we set it.
   ctx.on('agent/request', async (payload, next) => {
     const resolved = await next()
     const agent = payload.agent
@@ -205,7 +210,7 @@ export function apply(ctx, config) {
       ...resolved,
       maxTokens: bootstrapMaxTokens,
     }
-  })
+  }, { prepend: true })
 
   // Strip first-step injected reminders (skill catalog, AGENTS.md) during
   // bootstrap. Because this listener is the first registered (see the inject
