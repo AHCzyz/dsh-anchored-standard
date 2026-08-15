@@ -3,8 +3,8 @@
 [English](./README.md)
 
 这是一个实验性的 DeepSeek Harness agent preset：第一次模型请求使用与 Minimal 对齐的
-完整 system prompt 和两项工具；会话记录首次持久 `tool/call` 后，开放 Standard 的完整
-工具目录。
+完整 system prompt 和两项工具；会话记录首次持久晋升信号（`tool/call` 或首次
+`assistant/message`，先到者为准）后，开放 Standard 的完整工具目录。
 
 这是社区项目，并非 DeepSeek 官方 preset，也不代表 DeepSeek 的认可或背书。
 
@@ -18,7 +18,10 @@ Anchored Standard 把“首次轨迹选择”和“后续完整工具能力”�
 
 1. 保持 Minimal 的完整 system prompt；
 2. 首次模型请求只暴露当前平台 shell 和 `read`；
-3. 会话出现首次 `tool/call` 后开放全部 Standard 工具；
+3. 会话出现首次持久晋升信号（`tool/call` 或首次 `assistant/message`，先到者为准）
+   后开放全部 Standard 工具——请求 #1 恒为 bootstrap 目录，请求 #2 起恒为完整目录，
+   纯文字首答不再把会话困死在 bootstrap（`tool-bootstrap` 行的 `promoteOn` 可选
+   `either` 默认 / `tool-call` / `assistant-message`）；
 4. 从持久 session event 推导阶段，resume 和 reload 不会丢失状态。
 
 Windows 首次目录为 `pwsh/read`，Linux 为 `bash/read`。
@@ -80,7 +83,7 @@ cp -R preset "$dsh_home/.agent-presets/anchored-standard"
 导出 session JSONL，检查 `request/header`：
 
 - 第一份 header 应只有 `pwsh/read` 或 `bash/read`；
-- 首次工具调用后，下一份变更 header 应包含完整 Standard 目录；
+- 首次工具调用或首次助手回复后，下一份变更 header 应包含完整 Standard 目录；
 - 此后的请求应保持完整目录。
 
 本仓库的零依赖测试：
@@ -91,8 +94,14 @@ npm test
 
 ## 重要行为
 
-- 第一次模型响应如果没有调用工具，会话不会晋升；
+- 默认 `promoteOn: either`：会话在首次持久 `tool/call` **或** 首次 `assistant/message`
+  （先到者为准）后晋升——请求 #1 见 bootstrap 目录，之后所有请求见完整目录；纯文字
+  首答也会在请求 #2 晋升。改为 `promoteOn: tool-call` 可恢复原行为（首答不调工具则
+  永不晋升）；
 - 工具执行即使失败，只要 `tool/call` 已持久化，下一步仍会晋升；
+- bootstrap 工具缺失时降级为完整目录并一次性告警，不再让请求失败，组合漂移不会锁死
+  会话；非法的 `promoteOn` 值会在 preset 挂载时报错；
+- 晋升判定按会话在进程内记忆化，持久事件扫描每会话每进程只执行一次。
 - 工具目录只变化一次，因此第一、第二次请求之间也会发生一次前缀缓存变化；
 - preset 与 shell 访问具有相同信任等级，安装前应自行审阅文件；
 - 插件不会发起网络请求，也不增加遥测。
