@@ -112,6 +112,9 @@ const PROMOTE_EVENTS = {
   either: ['tool/call', 'assistant/message'],
 }
 
+/** Every config key this plugin accepts — anything else is a typo. */
+const ALLOWED_KEYS = new Set(['bootstrapTools', 'promoteOn', 'bootstrapMaxTokens', 'suppressedContextSources', 'compactionTools'])
+
 /**
  * Context sources stripped from the first request by default. Both are
  * automatic `agent/pre-step` injections: the available-skills reminder
@@ -178,14 +181,24 @@ function optionalPositiveInt(value, field) {
 
 /** Register the per-session bootstrap filters. */
 export function apply(ctx, config) {
-  const bootstrapTools = stringList(config.bootstrapTools, 'bootstrapTools')
-  const promoteEvents = parsePromoteOn(config.promoteOn)
-  const bootstrapMaxTokens = optionalPositiveInt(config.bootstrapMaxTokens, 'bootstrapMaxTokens')
-  const suppressedSources = sourceList(config.suppressedContextSources, 'suppressedContextSources', DEFAULT_SUPPRESSED_SOURCES)
+  const source = config === undefined ? {} : config
+  if (typeof source !== 'object' || source === null || Array.isArray(source)) {
+    throw new TypeError(`${name}: config must be an object`)
+  }
+  const unknown = Object.keys(source).filter((key) => !ALLOWED_KEYS.has(key))
+  if (unknown.length > 0) {
+    throw new TypeError(
+      `${name}: unknown config key(s) ${unknown.join(', ')} — allowed keys: ${[...ALLOWED_KEYS].sort().join(', ')}`,
+    )
+  }
+  const bootstrapTools = stringList(source.bootstrapTools, 'bootstrapTools')
+  const promoteEvents = parsePromoteOn(source.promoteOn)
+  const bootstrapMaxTokens = optionalPositiveInt(source.bootstrapMaxTokens, 'bootstrapMaxTokens')
+  const suppressedSources = sourceList(source.suppressedContextSources, 'suppressedContextSources', DEFAULT_SUPPRESSED_SOURCES)
   // Core work set exposed after a compaction, before re-promotion. Empty
   // means "no compaction recovery catalog": the session stays on the
   // bootstrap pair until a new promotion signal.
-  const compactionTools = stringListOrEmpty(config.compactionTools, 'compactionTools')
+  const compactionTools = stringListOrEmpty(source.compactionTools, 'compactionTools')
 
   const promotion = createEpochPromotion(promoteEvents)
   ctx.on('session/event', (session, event) => promotion.observe(session, event))
