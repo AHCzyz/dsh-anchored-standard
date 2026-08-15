@@ -31,6 +31,11 @@
     complete: true
     includeRuntimeContext: false
 
+# Mounted for the PROMOTED phase: its `agent/pre-step` workspace-context
+# injection (AGENTS.md / CLAUDE.md digests) is stripped from request #1 by
+# tool-bootstrap below, because true Minimal mounts no instruction loader at
+# all. Same reasoning as the persona: the first request must approximate
+# Minimal, not just on the tool catalog but on injected context.
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
   config:
@@ -43,12 +48,22 @@
 # registered below. Request #1 always sees the bootstrap catalog; request #2
 # always sees the full catalog — a text-only first reply can no longer trap the
 # session in bootstrap. See tool-bootstrap.mjs for the other triggers.
+#
+# The same phase gate also suppresses AUTO-INJECTED context on request #1:
+# `suppressedContextSources` lists the `agent/pre-step` message sources the
+# bootstrap filter strips while the session is unpromoted. The defaults are the
+# two automatic injections Standard adds over Minimal — the workspace
+# instruction digest (`agent-instructions`) and the available-skills reminder
+# (`skill-catalog`). User-initiated skill gestures are not filtered, and both
+# injections return unchanged from request #2 on. Set the list to [] to keep
+# the original context behavior.
 - id: tool-bootstrap
   name: ./tool-bootstrap.mjs
   config:
     shellTools: [bash, pwsh]
     commonTools: [read]
     promoteOn: either
+    suppressedContextSources: [agent-instructions, skill-catalog]
 
 # ── shell ───────────────────────────────────────────────────────────────────
 

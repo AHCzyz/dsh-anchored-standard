@@ -3,8 +3,9 @@
 [中文说明](./README.zh-CN.md)
 
 An experimental DeepSeek Harness agent preset that bootstraps the first model
-request with a Minimal-aligned prompt and two tools, then exposes the complete
-Standard tool catalog after the first durable tool call.
+request with a Minimal-aligned prompt, two tools, and no auto-injected
+workspace/skill context, then exposes the complete Standard tool catalog after
+the first durable tool call or reply.
 
 This is a community project. It is not an official DeepSeek preset and is not
 affiliated with or endorsed by DeepSeek.
@@ -20,13 +21,18 @@ Anchored Standard separates initial trajectory selection from later tool use:
 
 1. Keep the Minimal complete system prompt.
 2. Expose only the platform shell plus `read` on the first model request.
-3. After the session records its first durable promotion signal — a `tool/call`
+3. Strip the auto-injected context on that first request as well — the
+   AGENTS.md/CLAUDE.md workspace digest and the available-skills reminder that
+   true Minimal never mounts (`suppressedContextSources` in the
+   `tool-bootstrap` row). User-initiated skill gestures are not filtered, and
+   both injections return unchanged from request #2 on.
+4. After the session records its first durable promotion signal — a `tool/call`
    or the first `assistant/message`, whichever comes first — expose all
    Standard tools. Request #1 always sees the bootstrap catalog; request #2
    always sees the full catalog, so a text-only first reply can no longer trap
    the session in bootstrap. (`promoteOn` in the `tool-bootstrap` row selects
    the trigger: `either` default, `tool-call`, or `assistant-message`.)
-4. Derive the phase from durable session events so resume and reload preserve it.
+5. Derive the phase from durable session events so resume and reload preserve it.
 
 On Windows the bootstrap catalog is `pwsh/read`; on Linux it is `bash/read`.
 
@@ -90,9 +96,13 @@ different preset.
 Export the session JSONL and inspect `request/header` events:
 
 - the first header should contain only `pwsh/read` or `bash/read`;
+- the first request's messages should contain no AGENTS.md/CLAUDE.md digest and
+  no available-skills reminder — only the user message and the minimal persona
+  system prompt;
 - after the first tool call or the first assistant reply, the next changed
   header should contain the full Standard catalog;
-- subsequent requests should keep that full catalog.
+- subsequent requests should keep that full catalog and restore the standard
+  context injections.
 
 Run the local zero-dependency tests with:
 
@@ -115,6 +125,12 @@ npm test
   session; invalid `promoteOn` values fail at preset mount instead.
 - Promotion decisions are memoized per session for the process lifetime; the
   durable event scan runs once per session per process.
+- While a session is unpromoted, the pre-step filter strips messages whose
+  `source.kind` is listed in `suppressedContextSources` (default:
+  `agent-instructions` and `skill-catalog`, the two automatic injections
+  Standard adds over Minimal). Set the list to `[]` to disable the context
+  filter; add other `source.kind` values to suppress more. A filter failure
+  degrades to keeping every message rather than eating context.
 - The tool catalog changes once, so request-prefix cache continuity also changes
   once between the first and second model requests.
 - The preset has the same trust level as shell access. Review its files before
