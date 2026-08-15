@@ -162,15 +162,18 @@
 # Windows-only `bash` tool (see preset/custom-bash.mjs): registers the SAME
 # tool name as the persistent shell with a Minimal-compatible description, but
 # executes through the ordinary cross-platform subprocess seam (`bash -c`)
-# instead of a PTY. `bashPath` defaults to `bash` on PATH; point it at Git
-# Bash explicitly when the WSL shim would otherwise be picked up. No OS
+# instead of a PTY. The shell is resolved WITHOUT a hardcoded install path
+# (issue #24): `bashPath` unset probes the `git` executable's install root,
+# then the well-known Git-for-Windows roots (Program Files(/x86), per-user
+# LOCALAPPDATA, scoop's `current` junction), then plain `bash` on PATH — set
+# `bashPath` explicitly only to pin a shell that probing cannot find. No OS
 # sandbox confinement on Windows (landlock is linux-only); the tool
-# description says so.
+# description says so. When no bash exists at all the tool errors with
+# guidance instead of switching shells — pwsh stays its own tool in the
+# promoted catalog.
 - id: custom-bash
   name: ./custom-bash.mjs
   disabled: !!js process.platform !== 'win32'
-  config:
-    bashPath: 'C:\Program Files\Git\bin\bash.exe'
 
 # ── filesystem ──────────────────────────────────────────────────────────────
 

@@ -111,14 +111,16 @@
 # Windows-only `bash` tool (see preset/custom-bash.mjs): the official bash
 # needs a PTY, and DSH's PTY backend is linux/darwin-only. This row presents
 # the SAME tool name (`bash`) with a Minimal-compatible description but spawns
-# Git Bash through the ordinary cross-platform subprocess seam. `bashPath`
-# defaults to `bash` on PATH; point it at Git Bash explicitly when the WSL
-# shim would otherwise be picked up.
+# Git Bash through the ordinary cross-platform subprocess seam. No hardcoded
+# install path (issue #24): unset `bashPath` probes the `git` executable's
+# install root, then the well-known Git-for-Windows roots (Program
+# Files(/x86), per-user LOCALAPPDATA, scoop), then plain `bash` on PATH —
+# set `bashPath` explicitly only to pin a shell that probing cannot find. When no bash
+# exists at all the tool errors with guidance instead of switching shells
+# (pwsh stays its own tool).
 - id: custom-bash
   name: ../preset/custom-bash.mjs
   disabled: !!js process.platform !== 'win32'
-  config:
-    bashPath: 'C:\Program Files\Git\bin\bash.exe'
 
 # ── filesystem ──────────────────────────────────────────────────────────────
 
