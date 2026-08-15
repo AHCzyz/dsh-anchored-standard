@@ -18,6 +18,29 @@
 # pool instances — `provide()` throws on the second registration under the
 # same realm symbol; labels join REALMS, and are not what this file needs.)
 
+# ── bootstrap (must stay FIRST) ─────────────────────────────────────────────
+
+# This row deliberately sits before every other row: dsh-agent-instructions and
+# dsh-tool-skill inject workspace instructions and the skill catalog into the
+# first request via the agent/pre-step waterfall, and waterfall after-next
+# transforms apply in reverse registration order. Registering first (plus the
+# plugin empty inject list) makes this filter strip the final transform, so
+# request #1 stays Minimal-exact (see issue #6).
+#
+# V4 Pro conditions strongly on the API tool catalog AND the first request
+# output budget. Bootstrap request #1 with one native shell plus `read` and a
+# small maxTokens cap; after the session records its first durable promotion
+# signal (a tool call OR the first assistant message, default
+# `promoteOn: either`), later steps expose every Standard tool below and the
+# normal output budget returns. See tool-bootstrap.mjs for the other triggers.
+- id: tool-bootstrap
+  name: ./tool-bootstrap.mjs
+  config:
+    shellTools: [bash, pwsh]
+    commonTools: [read]
+    promoteOn: either
+    bootstrapMaxTokens: 1024
+
 # ── identity ────────────────────────────────────────────────────────────────
 
 # Keep this text byte-identical to the Minimal preset. `complete` prevents the
@@ -36,19 +59,6 @@
   config:
     maxBytes: 65536
 
-# V4 Pro conditions strongly on the API tool catalog. Bootstrap its first model
-# request with one native shell plus `read`; after the session records its first
-# durable promotion signal (a tool call OR the first assistant message, default
-# `promoteOn: either`), later step assemblies expose every Standard tool
-# registered below. Request #1 always sees the bootstrap catalog; request #2
-# always sees the full catalog — a text-only first reply can no longer trap the
-# session in bootstrap. See tool-bootstrap.mjs for the other triggers.
-- id: tool-bootstrap
-  name: ./tool-bootstrap.mjs
-  config:
-    shellTools: [bash, pwsh]
-    commonTools: [read]
-    promoteOn: either
 
 # ── shell ───────────────────────────────────────────────────────────────────
 
