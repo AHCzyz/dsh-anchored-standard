@@ -4,8 +4,7 @@ import test from 'node:test'
 import { apply, name } from '../preset/tool-bootstrap.mjs'
 
 const config = {
-  commonTools: ['read'],
-  shellTools: ['bash', 'pwsh'],
+  bootstrapTools: ['bash', 'str_replace_editor'],
 }
 
 function register(cfg = config) {
@@ -51,39 +50,45 @@ test('exports a diagnostic plugin name', () => {
   assert.equal(name, 'anchored-tool-bootstrap')
 })
 
-test('first request exposes one platform shell and read', async () => {
+test('first request exposes exactly the Minimal tool pair', async () => {
   const { listeners } = register()
-  const tools = [{ name: 'pwsh' }, { name: 'read' }, { name: 'edit' }]
+  const tools = [
+    { name: 'bash' },
+    { name: 'str_replace_editor' },
+    { name: 'pwsh' },
+    { name: 'read' },
+    { name: 'edit' },
+  ]
   const result = await assemble(listeners['system-prompt/assemble'], [], tools)
-  assert.deepEqual(result.tools.map((tool) => tool.name), ['pwsh', 'read'])
+  assert.deepEqual(result.tools.map((tool) => tool.name), ['bash', 'str_replace_editor'])
 })
 
 test('a durable tool call promotes the complete catalog', async () => {
   const { listeners } = register()
-  const tools = [{ name: 'pwsh' }, { name: 'read' }, { name: 'edit' }, { name: 'grep' }]
-  const result = await assemble(listeners['system-prompt/assemble'], [{ type: 'tool/call', data: { name: 'read' } }], tools)
+  const tools = [{ name: 'bash' }, { name: 'str_replace_editor' }, { name: 'edit' }, { name: 'grep' }]
+  const result = await assemble(listeners['system-prompt/assemble'], [{ type: 'tool/call', data: { name: 'bash' } }], tools)
   assert.deepEqual(result.tools, tools)
 })
 
 test('a first assistant message promotes the complete catalog (no tool call needed)', async () => {
   const { listeners } = register()
-  const tools = [{ name: 'pwsh' }, { name: 'read' }, { name: 'write' }]
+  const tools = [{ name: 'bash' }, { name: 'str_replace_editor' }, { name: 'write' }]
   const result = await assemble(listeners['system-prompt/assemble'], [{ type: 'assistant/message', data: {} }], tools)
   assert.deepEqual(result.tools, tools)
 })
 
 test('sessions derive promotion independently from their own events', async () => {
   const { listeners } = register()
-  const tools = [{ name: 'bash' }, { name: 'read' }, { name: 'write' }]
+  const tools = [{ name: 'bash' }, { name: 'str_replace_editor' }, { name: 'write' }]
   const promoted = await assemble(listeners['system-prompt/assemble'], [{ type: 'tool/call' }], tools, 'a')
   const fresh = await assemble(listeners['system-prompt/assemble'], [], tools, 'b')
   assert.deepEqual(promoted.tools, tools)
-  assert.deepEqual(fresh.tools.map((tool) => tool.name), ['bash', 'read'])
+  assert.deepEqual(fresh.tools.map((tool) => tool.name), ['bash', 'str_replace_editor'])
 })
 
 test('promotion is memoized per session id within one process', async () => {
   const { listeners } = register()
-  const tools = [{ name: 'bash' }, { name: 'read' }, { name: 'write' }]
+  const tools = [{ name: 'bash' }, { name: 'str_replace_editor' }, { name: 'write' }]
   const first = await assemble(listeners['system-prompt/assemble'], [{ type: 'tool/call' }], tools, 'memo')
   assert.deepEqual(first.tools, tools)
   // Same session id, events now empty: the cached decision still promotes.
@@ -93,53 +98,64 @@ test('promotion is memoized per session id within one process', async () => {
 
 test('promoteOn tool-call requires a tool call, not just a reply', async () => {
   const { listeners } = register({ ...config, promoteOn: 'tool-call' })
-  const tools = [{ name: 'bash' }, { name: 'read' }, { name: 'write' }]
+  const tools = [{ name: 'bash' }, { name: 'str_replace_editor' }, { name: 'write' }]
   const replyOnly = await assemble(listeners['system-prompt/assemble'], [{ type: 'assistant/message' }], tools, 'a')
-  assert.deepEqual(replyOnly.tools.map((tool) => tool.name), ['bash', 'read'])
+  assert.deepEqual(replyOnly.tools.map((tool) => tool.name), ['bash', 'str_replace_editor'])
   const withCall = await assemble(listeners['system-prompt/assemble'], [{ type: 'tool/call' }], tools, 'b')
   assert.deepEqual(withCall.tools, tools)
 })
 
 test('promoteOn assistant-message promotes after any first reply', async () => {
   const { listeners } = register({ ...config, promoteOn: 'assistant-message' })
-  const tools = [{ name: 'bash' }, { name: 'read' }, { name: 'write' }]
+  const tools = [{ name: 'bash' }, { name: 'str_replace_editor' }, { name: 'write' }]
   const result = await assemble(listeners['system-prompt/assemble'], [{ type: 'assistant/message' }], tools, 'a')
   assert.deepEqual(result.tools, tools)
 })
 
-test('a missing bootstrap shell degrades gracefully to the full catalog', async () => {
+test('a missing bootstrap tool degrades gracefully to the full catalog', async () => {
   const { listeners, warns } = register()
-  const tools = [{ name: 'read' }, { name: 'edit' }]
+  const tools = [{ name: 'str_replace_editor' }, { name: 'edit' }]
   const result = await assemble(listeners['system-prompt/assemble'], [], tools)
   assert.deepEqual(result.tools, tools)
   assert.ok(warns.length >= 1)
+})
+
+test('invalid bootstrapTools values fail at apply time', () => {
+  assert.throws(() => register({ ...config, bootstrapTools: [] }), /bootstrapTools/)
+  assert.throws(() => register({ ...config, bootstrapTools: ['bash', 42] }), /bootstrapTools/)
 })
 
 test('invalid promoteOn values fail at apply time', () => {
   assert.throws(() => register({ ...config, promoteOn: 'bogus' }), /promoteOn/)
 })
 
-test('invalid bootstrapMaxTokens fails at apply time', () => {
-  assert.throws(() => register({ ...config, bootstrapMaxTokens: 0 }), /bootstrapMaxTokens/)
+test('without bootstrapMaxTokens the adapter default flows (no agent/request listener)', async () => {
+  const { listeners } = register()
+  assert.equal(listeners['agent/request'], undefined)
 })
 
-test('first request is capped to bootstrapMaxTokens', async () => {
-  const { listeners } = register({ ...config, bootstrapMaxTokens: 1024 })
+test('with bootstrapMaxTokens the first request is capped', async () => {
+  const { listeners, hookOptions } = register({ ...config, bootstrapMaxTokens: 1024 })
+  assert.equal(hookOptions['agent/request']?.prepend, true)
   const resolved = await request(listeners['agent/request'], [], { provider: 'deepseek-official', model: 'deepseek-v4-pro' })
   assert.equal(resolved.maxTokens, 1024)
   assert.equal(resolved.provider, 'deepseek-official')
 })
 
-test('after promotion, the injected cap is stripped so the default returns', async () => {
+test('with bootstrapMaxTokens, after promotion the injected cap is stripped so the default returns', async () => {
   const { listeners } = register({ ...config, bootstrapMaxTokens: 1024 })
   const resolved = await request(listeners['agent/request'], [{ type: 'tool/call' }], { provider: 'x', model: 'y', maxTokens: 1024 })
   assert.equal(resolved.maxTokens, undefined)
 })
 
-test('after promotion, a different maxTokens is preserved', async () => {
+test('with bootstrapMaxTokens, after promotion a different maxTokens is preserved', async () => {
   const { listeners } = register({ ...config, bootstrapMaxTokens: 1024 })
   const resolved = await request(listeners['agent/request'], [{ type: 'tool/call' }], { provider: 'x', model: 'y', maxTokens: 256000 })
   assert.equal(resolved.maxTokens, 256000)
+})
+
+test('invalid bootstrapMaxTokens fails at apply time', () => {
+  assert.throws(() => register({ ...config, bootstrapMaxTokens: 0 }), /bootstrapMaxTokens/)
 })
 
 test('pre-step filter registers with prepend before every other listener', () => {
@@ -216,7 +232,7 @@ test('invalid suppressedContextSources values fail at apply time', () => {
 })
 
 test('the pre-step strip and the budget cap both register with prepend', () => {
-  const { hookOptions } = register()
+  const { hookOptions } = register({ ...config, bootstrapMaxTokens: 1024 })
   assert.deepEqual(hookOptions['agent/pre-step'], { prepend: true })
   assert.deepEqual(hookOptions['agent/request'], { prepend: true })
 })
