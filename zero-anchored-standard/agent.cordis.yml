@@ -32,19 +32,48 @@
     complete: true
     includeRuntimeContext: false
 
-- id: agent-instructions
-  name: '@deepseek-ai/dsh-agent-instructions'
+# Instruction FILES are NOT injected (replaces dsh-agent-instructions, local
+# addition): the full AGENTS.md/CLAUDE.md digest is a large injected block
+# that perturbs the trajectory even after promotion. Instead, after promotion
+# ONE short hint is injected once per session — "these instruction files
+# exist; read them before acting" — and the model reads the files itself via
+# the filesystem tools when relevant.
+- id: instruction-hint
+  name: ../preset/instruction-hint.mjs
   config:
-    maxBytes: 65536
+    promoteOn: assistant-message
+
+# On-demand tool discovery (the tool-search pattern, local addition): the
+# promoted catalog keeps a minimal resident set; heavier Standard tools
+# (web_search, subagent, workflow, …) are unlocked on demand via
+# dev_tool_search.
+- id: dev-tool-search
+  name: ../preset/dev-tool-search.mjs
 
 # V4 Pro conditions strongly on the API tool catalog. The first top-level
 # model request therefore carries ZERO tools: `anchor-turn` seeds a fixed user
 # message, this bootstrap strips the whole catalog, and the first reasoning
 # chain follows the zero-injection "we" trajectory. After that assistant
-# response is durable, later step assemblies expose every Standard tool
-# registered below. Subagents always see the full catalog.
+# response is durable, later step assemblies narrow to the minimal RESIDENT
+# set (shells + str_replace_editor + the discovery tools + explicitly
+# unlocked tools) instead of the full Standard dump — the post-promotion
+# regression fix. Subagents always see the full catalog.
+#
+# The same phase gate suppresses AUTO-INJECTED context (`suppressedContextSources`,
+# default `['skill-catalog', 'agent-instructions']`) while the session is
+# un-promoted — same reasoning as the anchored variant (issue #6: 0/9 anchored
+# with the skill catalog present vs ~81% without).
+#
+# COMPACTION (local addition): after `compaction/end` the session falls back
+# to the controlled phase — shells + `compactionTools` — until a NEW durable
+# assistant message exists past the boundary (epoch-aware, see
+# preset/compaction-epoch.mjs). The zero-tool anchor applies ONLY to the very
+# first request; post-compaction the model is mid-task and keeps working.
 - id: zero-tool-bootstrap
   name: ./zero-tool-bootstrap.mjs
+  config:
+    suppressedContextSources: [agent-instructions, skill-catalog]
+    compactionTools: [read, write, edit, glob, grep, todo_write, ask_user_question]
 
 # Seed the fixed zero-tool anchor turn when the first user message arrives:
 # the anchor is prepended ahead of it, so the first real model request has no
@@ -85,6 +114,29 @@
   config:
     sampleOverCapGlobResults: false
 
+# The Minimal preset's second tool: `str_replace_editor` over a bare local
+# filesystem, byte-identical in configuration to the official `minimal`
+# preset's `filesystem` group (and to the anchored preset's copy). It is part
+# of the promoted resident set. The editor's own realm shadows the host's
+# sandboxed `fs` provider only inside this group, so the standard `read`/
+# `write`/`edit` tools keep the sandboxed fs while the editor uses the local
+# one.
+- id: bootstrap-filesystem
+  name: cordis:group
+  group: true
+  isolate:
+    fs: true
+  config:
+    - id: fs-local
+      name: '@deepseek-ai/dsh-fs-local'
+      config:
+        cwd: !!js process.env.DSH_CWD ?? process.cwd()
+
+    - id: str-replace-editor
+      name: '@deepseek-ai/dsh-tool-str-replace-editor'
+      config:
+        maxOutputChars: 16000
+
 # ── background jobs ────────────────────────────────────────────────────────
 
 # Only the model-facing controls. The task REGISTRY stays on the host plane:
@@ -101,14 +153,17 @@
 
 # The skill REGISTRY lives in the host composition and is layered per scope:
 # these rows register into THIS preset's layer of it, so they need no realm.
-# `skill-filesystem` contributes local-root discovery for agents on this preset, and
-# `tool-skill` gives them the catalog and loader; the merged catalog also
-# carries whatever the deployment registered globally (repository plugins).
+# `skill-filesystem` contributes local-root discovery for agents on this
+# preset. The full skill CATALOG injection (`dsh-tool-skill`, the ~9KB
+# `<available_skills>` reminder) is REMOVED (local addition): it perturbs the
+# trajectory (issue #6). Instead `skill-search` exposes two small on-demand
+# tools — skill_search (list matching summaries) and skill_load (inject one
+# skill's full instructions) — the tool-search pattern.
 - id: skill-filesystem
   name: '@deepseek-ai/dsh-skill-filesystem'
 
-- id: tool-skill
-  name: '@deepseek-ai/dsh-tool-skill'
+- id: skill-search
+  name: ../preset/skill-search.mjs
 
 # ── goals ───────────────────────────────────────────────────────────────────
 
