@@ -222,6 +222,48 @@ cp -R zero-anchored-standard "$dsh_home/.agent-presets/zero-anchored-standard"
 Restart DeepSeek Harness, create a blank session, select **Zero-Anchored
 Standard (experimental)**, then send your first message.
 
+## Whoami Standard (experimental)
+
+A usability-oriented variant of the zero-tool anchor idea: the first turn is a
+natural self-introduction prompt instead of a fixed test message, and the
+user's real first message is deferred to the next turn. Whatever the user types
+first, the session warms up exactly one round and everything is ready when the
+real message is processed:
+
+1. When the user sends their first message, the `whoami-turn` plugin prepends a
+   fixed user message — "你是谁" (who are you) — ahead of it in the `next-turn`
+   inbox queue.
+2. dsh claims exactly ONE `next-turn` message per turn, so the first model
+   request sees only the anchor on an EMPTY tool surface and replies with a
+   self-introduction; that reply is the promotion signal.
+3. The real message is claimed by the NEXT turn, with the promoted resident
+   catalog (shells, `str_replace_editor`, the discovery tools) already
+   unlocked — heavier Standard tools are one `dev_tool_search` away.
+
+The anchor text is configurable via the `whoami-turn` row's `text` option
+(default "你是谁"). Anchoring on the first message — not session creation —
+keeps the blank-session preset switcher usable; subagents always see the full
+catalog. The trade-off is one extra model call per session: the anchor turn is
+always taken, even when the first message is urgent.
+
+The preset shares plugin modules with the anchored `preset/` directory via
+`../preset/` references, so install that directory as well (see the Install
+section above).
+
+Install as a separate preset id:
+
+```sh
+dsh_home="${DSH_HOME:-$HOME/.dsh}"
+mkdir -p "$dsh_home/.agent-presets"
+test ! -e "$dsh_home/.agent-presets/whoami-standard"
+cp -R whoami-standard "$dsh_home/.agent-presets/whoami-standard"
+```
+
+Restart DeepSeek Harness, create a blank session, select **Whoami Standard
+(experimental)**, then send your first message — the self-introduction round
+runs first, and your message is answered with the full tooling on the next
+turn.
+
 ## Official ecosystem guidance
 
 DeepSeek currently asks community plugin authors to publish plugins in their own
