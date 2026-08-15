@@ -214,3 +214,9 @@ test('invalid suppressedContextSources values fail at apply time', () => {
   assert.throws(() => register({ ...config, suppressedContextSources: 'agent-instructions' }), /suppressedContextSources/)
   assert.throws(() => register({ ...config, suppressedContextSources: ['agent-instructions', 42] }), /suppressedContextSources/)
 })
+
+test('the pre-step strip and the budget cap both register with prepend', () => {
+  const { hookOptions } = register()
+  assert.deepEqual(hookOptions['agent/pre-step'], { prepend: true })
+  assert.deepEqual(hookOptions['agent/request'], { prepend: true })
+})
