@@ -76,3 +76,24 @@ test('a throwing catalog search degrades to a message, never throws', async () =
   const result = await spy.tools.registered.execute({ query: 'web' }, exec())
   assert.match(result.text, /catalog search unavailable/)
 })
+
+test('schemas() is queried with the executing agent as the viewing scope (issue #24)', async () => {
+  const calls = []
+  const ctx = {
+    tools: {
+      schemas(scope) {
+        calls.push(scope)
+        return [{ name: 'pwsh', description: 'Execute a PowerShell command' }]
+      },
+      register(tool) {
+        this.registered = tool
+      },
+    },
+  }
+  apply(ctx)
+  const agent = { session: { id: 's1' } }
+  const result = await ctx.tools.registered.execute({ query: 'pwsh' }, { agent })
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0], agent, 'the executing agent is the viewing scope, so agent-scoped preset tools are visible')
+  assert.match(result.text, /pwsh: Execute a PowerShell command/)
+})
