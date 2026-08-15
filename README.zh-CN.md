@@ -106,6 +106,37 @@ npm test
 - preset 与 shell 访问具有相同信任等级，安装前应自行审阅文件；
 - 插件不会发起网络请求，也不增加遥测。
 
+## Zero-Anchored Standard（实验）
+
+这是不改变上面 Anchored Standard 逻辑的额外测试模式。它沿用同一套 Minimal
+对齐的 system prompt，但首轮不再暴露两个工具，而是先注入一轮固定的零工具锚定
+对话：
+
+1. 用户发出第一条消息时，`anchor-turn` 插件会把固定消息——"This round is a
+   test. Tools are not open yet; all tools will open next round."——插到它前面；
+2. 第一个真实模型请求携带 **0 个工具**，首条思维链因此走零注入的 "we" 轨迹；
+3. 锚定回复落库后开放完整 Standard 目录，真实消息带着全部工具继续。
+
+锚定发生在第一条消息到达时而不是会话创建时，因此新建会话仍然可以先切换模式；
+子 agent 始终看到完整目录。
+
+实测行为（opencode-go、DeepSeek V4 Pro、`reasoningEffort=max`）：锚定请求稳定
+为 "we" 风格且 `let me` 为 0；后续带工具请求会回到 "The user wants…/Let me"
+风格。因此该模式用于对比"零工具首轮是否值得多一次模型调用"，并不承诺工具轮次
+保持 "we" 风格。
+
+以独立 preset id 安装：
+
+```sh
+dsh_home="${DSH_HOME:-$HOME/.dsh}"
+mkdir -p "$dsh_home/.agent-presets"
+test ! -e "$dsh_home/.agent-presets/zero-anchored-standard"
+cp -R zero-anchored-standard "$dsh_home/.agent-presets/zero-anchored-standard"
+```
+
+重启 DeepSeek Harness，新建空白会话，选择 **Zero-Anchored Standard
+(experimental)**，然后发送第一条消息。
+
 ## 官方生态要求
 
 DeepSeek 当前建议社区作者把插件放在自己的 GitHub 项目中，并为仓库添加
