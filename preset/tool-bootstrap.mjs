@@ -1,7 +1,8 @@
 /**
  * Anchored tool bootstrap — keep the FIRST model request on a small tool
- * surface and a small output budget, then expose the full preset catalog (and
- * the normal output budget) once the session has produced its first durable
+ * surface, a small output budget, and free of auto-injected workspace/skill
+ * context, then expose the full preset catalog (and the normal output budget
+ * and context injections) once the session has produced its first durable
  * promotion signal.
  *
  * The phase is derived from durable session events, so resume and reload
@@ -29,7 +30,14 @@
  *     step as user messages whenever such content exists. With the skill
  *     catalog present the anchor did not reproduce at all (0/9); without it
  *     the same request reproduces at ~81%. Both message kinds are therefore
- *     stripped during bootstrap and allowed again after promotion.
+ *     stripped during bootstrap and allowed again after promotion. The
+ *     stripped set is configurable via `suppressedContextSources` (default
+ *     `['skill-catalog', 'agent-instructions']`); an explicitly empty array
+ *     disables the context filter while keeping the tool bootstrap and the
+ *     output cap. A user-initiated skill gesture (`skill-invocation`) is NOT
+ *     in the default set: it is not an automatic injection, and stripping it
+ *     would lose the skill content once the gesture scrolls out of the
+ *     per-step claim.
  *
  * Robustness:
  *  - Promotion decisions are memoized per session id for this process; the
@@ -37,8 +45,11 @@
  *  - A missing bootstrap tool degrades to the full catalog with a one-time
  *    warning instead of throwing, so a composition drift can never brick
  *    every request of a session.
- *  - Invalid config (bad tool lists, unknown `promoteOn`) fails at apply
- *    time, i.e. at preset mount, where it is visible and fixable.
+ *  - The pre-step context filter degrades to "keep everything" on failure:
+ *    a filter bug must never eat the user's context.
+ *  - Invalid config (bad tool lists, unknown `promoteOn`, malformed
+ *    `suppressedContextSources`, non-positive `bootstrapMaxTokens`) fails at
+ *    apply time, i.e. at preset mount, where it is visible and fixable.
  */
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -51,7 +62,9 @@ export const name = 'anchored-tool-bootstrap'
  * dsh-tool-skill, and waterfall after-next transforms apply in reverse
  * registration order, so the first-request strip below is the LAST transform.
  * With an inject here those plugins register first and re-inject their
- * messages after the strip.
+ * messages after the strip. The pre-step listener additionally registers with
+ * `prepend: true` so the strip stays the outermost transform even against
+ * host-plane listeners and future row reordering.
  */
 export const inject = []
 
@@ -64,8 +77,13 @@ const PROMOTE_EVENTS = {
   either: ['tool/call', 'assistant/message'],
 }
 
-/** Message source kinds injected into the first step that must not reach request #1. */
-const BOOTSTRAP_INJECTED_SOURCE_KINDS = new Set(['skill-catalog', 'agent-instructions'])
+/**
+ * Context sources stripped from the first request by default. Both are
+ * automatic `agent/pre-step` injections: the available-skills reminder
+ * (`skill-catalog`) and the AGENTS.md/CLAUDE.md workspace digest
+ * (`agent-instructions`). True Minimal mounts neither plugin.
+ */
+const DEFAULT_SUPPRESSED_SOURCES = ['skill-catalog', 'agent-instructions']
 
 function stringList(value, field) {
   if (!Array.isArray(value) || value.length === 0 || value.some((item) => typeof item !== 'string' || item.length === 0)) {
@@ -78,6 +96,19 @@ function parsePromoteOn(value) {
   if (value === undefined || value === 'either') return PROMOTE_EVENTS.either
   if (value === 'tool-call' || value === 'assistant-message') return PROMOTE_EVENTS[value]
   throw new TypeError(`${name}: promoteOn must be one of "tool-call", "assistant-message", "either"; got ${JSON.stringify(value)}`)
+}
+
+/**
+ * Validate the suppressed context sources. Unlike the bootstrap tool lists,
+ * an explicitly empty array is meaningful: it disables the context filter
+ * while keeping the tool bootstrap.
+ */
+function sourceList(value, field, fallback) {
+  if (value === undefined) return new Set(fallback)
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || item.length === 0)) {
+    throw new TypeError(`${name}: ${field} must be an array of non-empty strings`)
+  }
+  return new Set(value)
 }
 
 function positiveInt(value, field, fallback) {
@@ -94,6 +125,7 @@ export function apply(ctx, config) {
   const shellTools = stringList(config.shellTools, 'shellTools')
   const promoteEvents = parsePromoteOn(config.promoteOn)
   const bootstrapMaxTokens = positiveInt(config.bootstrapMaxTokens, 'bootstrapMaxTokens', DEFAULT_BOOTSTRAP_MAX_TOKENS)
+  const suppressedSources = sourceList(config.suppressedContextSources, 'suppressedContextSources', DEFAULT_SUPPRESSED_SOURCES)
 
   /** Sessions already promoted in this process. Promotion is append-only, so a Set is sound. */
   const promoted = new Set()
@@ -177,16 +209,25 @@ export function apply(ctx, config) {
 
   // Strip first-step injected reminders (skill catalog, AGENTS.md) during
   // bootstrap. Because this listener is the first registered (see the inject
-  // note and the row order in agent.cordis.yml), the strip is the final
-  // waterfall transform and actually removes what later listeners inject.
-  ctx.on('agent/pre-step', async (payload, next) => {
+  // note, the row order in agent.cordis.yml, and `prepend` below), the strip
+  // is the final waterfall transform and actually removes what later
+  // listeners inject.
+  ctx.on('agent/pre-step', async ({ agent }, next) => {
+    // Downstream errors propagate untouched; only this filter's own logic is guarded.
     const decision = await next()
     if (decision.kind === 'reject') return decision
-    const agent = payload.agent
-    if (isPromoted(agent)) return decision
-    return {
-      ...decision,
-      messages: decision.messages.filter((message) => !BOOTSTRAP_INJECTED_SOURCE_KINDS.has(message.source?.kind)),
+    try {
+      if (isPromoted(agent) || suppressedSources.size === 0) return decision
+      if (!Array.isArray(decision.messages)) return decision
+      const kept = decision.messages.filter((message) => {
+        const kind = message?.source?.kind
+        return typeof kind !== 'string' || !suppressedSources.has(kind)
+      })
+      return kept.length === decision.messages.length ? decision : { ...decision, messages: kept }
+    } catch (error) {
+      // A filter bug must never eat context: degrade to keeping every message.
+      warnOnce(`${name}: pre-step context filter failed, keeping injected context: ${String((error && error.message) || error)}`)
+      return decision
     }
-  })
+  }, { prepend: true })
 }

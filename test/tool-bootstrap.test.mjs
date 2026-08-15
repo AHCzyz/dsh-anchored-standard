@@ -10,10 +10,12 @@ const config = {
 
 function register(cfg = config) {
   const listeners = {}
+  const hookOptions = {}
   const warns = []
   const ctx = {
-    on(event, callback) {
+    on(event, callback, options) {
       listeners[event] = callback
+      hookOptions[event] = options
     },
     logger: {
       warn(message) {
@@ -22,7 +24,7 @@ function register(cfg = config) {
     },
   }
   apply(ctx, cfg)
-  return { listeners, warns }
+  return { listeners, hookOptions, warns }
 }
 
 const agent = (events, id = 's') => ({ session: { id, events } })
@@ -38,6 +40,12 @@ function request(listener, events, resolved, id = 's') {
 function prestep(listener, events, messages, id = 's') {
   return listener({ agent: agent(events, id), turn: 1, step: 1 }, async () => ({ kind: 'enter', messages }))
 }
+
+const userMessage = { id: 'u', content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }
+const instructionMessage = { id: 'i', content: [], source: { kind: 'agent-instructions' } }
+const catalogMessage = { id: 'c', content: [], source: { kind: 'skill-catalog' } }
+const gestureMessage = { id: 'g', content: [], source: { kind: 'skill-invocation' } }
+const pluginMessage = { id: 'p', content: [], source: { kind: 'plugin' } }
 
 test('exports a diagnostic plugin name', () => {
   assert.equal(name, 'anchored-tool-bootstrap')
@@ -134,6 +142,11 @@ test('after promotion, a different maxTokens is preserved', async () => {
   assert.equal(resolved.maxTokens, 256000)
 })
 
+test('pre-step filter registers with prepend before every other listener', () => {
+  const { hookOptions } = register()
+  assert.equal(hookOptions['agent/pre-step']?.prepend, true)
+})
+
 test('bootstrap pre-step strips skill-catalog and agent-instructions messages', async () => {
   const { listeners } = register()
   const messages = [
@@ -146,18 +159,58 @@ test('bootstrap pre-step strips skill-catalog and agent-instructions messages', 
   assert.deepEqual(decision.messages.map((message) => message.id), ['m1'])
 })
 
-test('promoted pre-step keeps skill-catalog and agent-instructions messages', async () => {
+test('bootstrap strip preserves user skill gestures and other plugin messages', async () => {
   const { listeners } = register()
-  const messages = [
-    { id: 'm1', content: [{ type: 'text', text: 'user message' }] },
-    { id: 'm2', content: [{ type: 'text', text: '<system-reminder>skills...</system-reminder>' }], source: { kind: 'skill-catalog' } },
-  ]
-  const decision = await prestep(listeners['agent/pre-step'], [{ type: 'tool/call' }], messages)
-  assert.deepEqual(decision.messages.map((message) => message.id), ['m1', 'm2'])
+  const decision = await prestep(listeners['agent/pre-step'], [], [
+    userMessage,
+    instructionMessage,
+    catalogMessage,
+    gestureMessage,
+    pluginMessage,
+  ])
+  assert.equal(decision.kind, 'enter')
+  assert.deepEqual(decision.messages.map((message) => message.id), ['u', 'g', 'p'])
 })
 
-test('reject decisions pass through untouched', async () => {
+test('promoted pre-step keeps every injected context message', async () => {
   const { listeners } = register()
-  const decision = await listeners['agent/pre-step']({ agent: agent([]), turn: 1, step: 1 }, async () => ({ kind: 'reject' }))
-  assert.equal(decision.kind, 'reject')
+  const messages = [userMessage, instructionMessage, catalogMessage, pluginMessage]
+  const decision = await prestep(listeners['agent/pre-step'], [{ type: 'tool/call' }], messages)
+  assert.equal(decision.messages, messages)
+})
+
+test('a text-only first reply promotes the context injections too', async () => {
+  const { listeners } = register()
+  const stripped = await prestep(listeners['agent/pre-step'], [], [userMessage, instructionMessage, catalogMessage])
+  assert.deepEqual(stripped.messages.map((message) => message.id), ['u'])
+  const kept = await prestep(listeners['agent/pre-step'], [{ type: 'assistant/message' }], [userMessage, instructionMessage])
+  assert.deepEqual(kept.messages.map((message) => message.id), ['u', 'i'])
+})
+
+test('reject decisions pass through the context filter untouched', async () => {
+  const { listeners } = register()
+  const decision = { kind: 'reject', messages: [userMessage, instructionMessage] }
+  const result = await listeners['agent/pre-step'](
+    { agent: agent([]), turn: 1, step: 1 },
+    async () => decision,
+  )
+  assert.equal(result, decision)
+})
+
+test('suppressedContextSources is configurable', async () => {
+  const { listeners } = register({ ...config, suppressedContextSources: ['skill-invocation'] })
+  const decision = await prestep(listeners['agent/pre-step'], [], [userMessage, instructionMessage, catalogMessage, gestureMessage])
+  assert.deepEqual(decision.messages.map((message) => message.id), ['u', 'i', 'c'])
+})
+
+test('an empty suppressedContextSources disables the context filter', async () => {
+  const { listeners } = register({ ...config, suppressedContextSources: [] })
+  const messages = [userMessage, instructionMessage, catalogMessage]
+  const decision = await prestep(listeners['agent/pre-step'], [], messages)
+  assert.equal(decision.messages, messages)
+})
+
+test('invalid suppressedContextSources values fail at apply time', () => {
+  assert.throws(() => register({ ...config, suppressedContextSources: 'agent-instructions' }), /suppressedContextSources/)
+  assert.throws(() => register({ ...config, suppressedContextSources: ['agent-instructions', 42] }), /suppressedContextSources/)
 })
