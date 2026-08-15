@@ -102,6 +102,18 @@
   name: '@deepseek-ai/dsh-tool-pwsh'
   disabled: !!js process.platform !== 'win32'
 
+# Windows-only `bash` tool (see preset/custom-bash.mjs): the official bash
+# needs a PTY, and DSH's PTY backend is linux/darwin-only. This row presents
+# the SAME tool name (`bash`) with a Minimal-compatible description but spawns
+# Git Bash through the ordinary cross-platform subprocess seam. `bashPath`
+# defaults to `bash` on PATH; point it at Git Bash explicitly when the WSL
+# shim would otherwise be picked up.
+- id: custom-bash
+  name: ../preset/custom-bash.mjs
+  disabled: !!js process.platform !== 'win32'
+  config:
+    bashPath: 'C:\Program Files\Git\bin\bash.exe'
+
 # ── filesystem ──────────────────────────────────────────────────────────────
 
 # Both register into the host `tools` registry and provide nothing, so
